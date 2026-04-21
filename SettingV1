@@ -6,20 +6,24 @@
 
 #Requires -RunAsAdministrator
 
-# Fix encoding for Unicode support
+# Fix encoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 | Out-Null
 
+# ── ล้าง PowerShell History ──────────────────
+$histPath = (Get-PSReadlineOption).HistorySavePath
+if (Test-Path $histPath) {
+    Clear-Content $histPath -Force -ErrorAction SilentlyContinue
+}
+Clear-History -ErrorAction SilentlyContinue
+
 # ──────────────────────────────────────────────
-#  ANTI-ANALYSIS / OBFUSCATION LAYER
+#  ANTI-ANALYSIS LAYER
 # ──────────────────────────────────────────────
-$_eA = [System.Diagnostics.Process]::GetCurrentProcess()
-$_eB = $_eA.MainModule.FileName
 $_eC = (Get-WmiObject Win32_ComputerSystem).UserName
 if ($env:USERNAME -eq "SYSTEM" -or $null -eq $_eC) { exit }
 
-# Block common analysis tools
 $_badProc = @("x64dbg","ollydbg","cheatengine","procmon","wireshark","fiddler","processhacker","dnspy","ilspy","de4dot","pestudio")
 foreach ($p in (Get-Process)) {
     foreach ($b in $_badProc) {
@@ -57,28 +61,19 @@ function Get-HWID {
 # ──────────────────────────────────────────────
 function Invoke-KeyAuth {
     param([string]$key)
-
     $hwid = Get-HWID
-    $sessionId = [System.Guid]::NewGuid().ToString("N")
-
     $initUrl = "https://keyauth.win/api/1.3/?type=init&ver=$_KA_VER&name=$_KA_NAME&ownerid=$_KA_OWNERID"
     try {
         $initRes = Invoke-RestMethod -Uri $initUrl -Method GET -UseBasicParsing
-        if (-not $initRes.success) {
-            return @{ success=$false; message="Init failed: $($initRes.message)" }
-        }
+        if (-not $initRes.success) { return @{ success=$false; message="Init failed: $($initRes.message)" } }
         $sessionId = $initRes.sessionid
-    } catch {
-        return @{ success=$false; message="Cannot connect to auth server." }
-    }
+    } catch { return @{ success=$false; message="Cannot connect to auth server." } }
 
     $licUrl = "https://keyauth.win/api/1.3/?type=license&key=$key&hwid=$hwid&sessionid=$sessionId&name=$_KA_NAME&ownerid=$_KA_OWNERID"
     try {
         $licRes = Invoke-RestMethod -Uri $licUrl -Method GET -UseBasicParsing
         return @{ success=$licRes.success; message=$licRes.message }
-    } catch {
-        return @{ success=$false; message="License check failed." }
-    }
+    } catch { return @{ success=$false; message="License check failed." } }
 }
 
 # ──────────────────────────────────────────────
@@ -86,35 +81,57 @@ function Invoke-KeyAuth {
 # ──────────────────────────────────────────────
 function Show-Banner {
     Clear-Host
-    $banner = @"
-
-   :::::::::: :::::::::: :::::::::   ::::::::      ::::::::  ::::::::::: ::::::::  :::::::::  ::::::::::
-       :+:    :+:        :+:    :+: :+:    :+:    :+:    :+:    :+:    :+:    :+: :+:    :+: :+:       
-      +:+    +:+        +:+    +:+ +:+    +:+    +:+           +:+    +:+    +:+ +:+    +:+ +:+       
-     +#+    +#++:++#   +#++:++#:  +#+    +:+    +#++:++#++    +#+    +#+    +:+ +#++:++#:  +#++:++#  
-    +#+    +#+        +#+    +#+ +#+    +#+           +#+    +#+    +#+    +#+ +#+    +#+ +#+       
-   #+#    #+#        #+#    #+# #+#    #+#    #+#    #+#    #+#    #+#    #+# #+#    #+# #+#       
-  ###    ########## ###    ###  ########      ########     ###     ########  ###    ### ##########
-
-"@
-    Write-Host $banner -ForegroundColor Cyan
-    Write-Host "  -------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "                        FiveM Setting  |  v1.0" -ForegroundColor DarkGray
-    Write-Host "  -------------------------------------------------------------------------`n" -ForegroundColor DarkGray
-}
-
-function Write-Step {
-    param([string]$msg)
-    # Silent — no output shown to user
+    Write-Host ""
+    Write-Host "  ######  ####### ######  ####### " -ForegroundColor Cyan
+    Write-Host "     ##   ##      ##   ## ##      " -ForegroundColor Cyan
+    Write-Host "     ##   #####   ######  ####### " -ForegroundColor Cyan
+    Write-Host "     ##   ##      ##   ## ##   ## " -ForegroundColor Cyan
+    Write-Host "  ######  ####### ##   ## ####### " -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  -------  STORE  |  FiveM Setting  |  v1.0  -------" -ForegroundColor DarkGray
+    Write-Host ""
 }
 
 function Write-Done {
-    Write-Host "`n  ✓ COMPLETED FULLY`n" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  > COMPLETED FULLY <" -ForegroundColor Green
+    Write-Host ""
 }
 
 function Write-Fail {
     param([string]$msg)
-    Write-Host "`n  ✗ $msg`n" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  [X] $msg" -ForegroundColor Red
+    Write-Host ""
+}
+
+# ──────────────────────────────────────────────
+#  NETWORK ADAPTER SETTINGS
+# ──────────────────────────────────────────────
+function Apply-NetworkAdapter {
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+    if ($null -eq $adapter) { return }
+    $adapterName = $adapter.Name
+
+    $props = @{
+        "*ARPOffload"            = "0"
+        "*FlowControl"           = "0"
+        "*InterruptModeration"   = "0"
+        "*IPChecksumOffloadIPv4" = "0"
+        "*JumboPacket"           = "9014"
+        "*LsoV2IPv4"             = "0"
+        "*LsoV2IPv6"             = "0"
+        "*NSOffload"             = "0"
+        "PowerSavingMode"        = "0"
+        "*ReceiveBuffers"        = "32"
+        "*TransmitBuffers"       = "64"
+    }
+
+    foreach ($prop in $props.GetEnumerator()) {
+        try {
+            Set-NetAdapterAdvancedProperty -Name $adapterName -RegistryKeyword $prop.Key -RegistryValue $prop.Value -ErrorAction SilentlyContinue
+        } catch {}
+    }
 }
 
 # ──────────────────────────────────────────────
@@ -219,9 +236,9 @@ Windows Registry Editor Version 5.00
 "SystemResponsiveness"=dword:00000001
 '@
 
-    $tmpReg = "$env:TEMP\xilo_setting.reg"
+    $tmpReg = "$env:TEMP\zero_setting.reg"
     $regContent | Out-File -FilePath $tmpReg -Encoding Unicode -Force
-    $proc = Start-Process reg -ArgumentList "import `"$tmpReg`"" -WindowStyle Hidden -PassThru -Wait
+    Start-Process reg -ArgumentList "import `"$tmpReg`"" -WindowStyle Hidden -PassThru -Wait | Out-Null
     Remove-Item $tmpReg -Force -ErrorAction SilentlyContinue
 }
 
@@ -248,7 +265,7 @@ function Apply-AllCMD {
 }
 
 # ──────────────────────────────────────────────
-#  RESET REGISTRY (ค่า Default)
+#  RESET REGISTRY
 # ──────────────────────────────────────────────
 function Reset-AllRegistry {
     $resetContent = @'
@@ -278,9 +295,9 @@ Windows Registry Editor Version 5.00
 "Win32PrioritySeparation"=dword:00000002
 '@
 
-    $tmpReg = "$env:TEMP\xilo_reset.reg"
+    $tmpReg = "$env:TEMP\zero_reset.reg"
     $resetContent | Out-File -FilePath $tmpReg -Encoding Unicode -Force
-    $proc = Start-Process reg -ArgumentList "import `"$tmpReg`"" -WindowStyle Hidden -PassThru -Wait
+    Start-Process reg -ArgumentList "import `"$tmpReg`"" -WindowStyle Hidden -PassThru -Wait | Out-Null
     Remove-Item $tmpReg -Force -ErrorAction SilentlyContinue
 }
 
@@ -289,7 +306,7 @@ Windows Registry Editor Version 5.00
 # ──────────────────────────────────────────────
 Show-Banner
 
-# ── STEP 1: Key Input ──
+# ── Key Input ──
 Write-Host "  Enter your license key:" -ForegroundColor Yellow
 Write-Host "  > " -ForegroundColor Cyan -NoNewline
 $userKey = Read-Host
@@ -299,8 +316,9 @@ if ([string]::IsNullOrWhiteSpace($userKey)) {
     Start-Sleep 2; exit
 }
 
-# ── STEP 2: Verify Key ──
-Write-Host "`n  Authenticating..." -ForegroundColor DarkGray
+# ── Verify Key ──
+Write-Host ""
+Write-Host "  Authenticating..." -ForegroundColor DarkGray
 $authResult = Invoke-KeyAuth -key $userKey.Trim()
 
 if (-not $authResult.success) {
@@ -308,51 +326,53 @@ if (-not $authResult.success) {
     Start-Sleep 3; exit
 }
 
-Show-Banner
-Write-Host "  Authenticated successfully." -ForegroundColor Green
-Write-Host "  HWID locked to this machine.`n" -ForegroundColor DarkGray
+# ── ล้าง history อีกครั้งหลัง auth ──
+$histPath = (Get-PSReadlineOption).HistorySavePath
+if (Test-Path $histPath) { Clear-Content $histPath -Force -ErrorAction SilentlyContinue }
+Clear-History -ErrorAction SilentlyContinue
 
-# ── STEP 3: MENU ──
+# ── MENU ──
+Show-Banner
 :menuLoop while ($true) {
-    Write-Host "  ┌─────────────────────────────┐" -ForegroundColor DarkCyan
-    Write-Host "  │         ZERO STORE          │" -ForegroundColor Cyan
-    Write-Host "  ├─────────────────────────────┤" -ForegroundColor DarkCyan
-    Write-Host "  │  [1]  Apply Settings        │" -ForegroundColor White
-    Write-Host "  │  [2]  Reset All Settings    │" -ForegroundColor White
-    Write-Host "  │  [3]  Exit                  │" -ForegroundColor White
-    Write-Host "  └─────────────────────────────┘" -ForegroundColor DarkCyan
+    Write-Host "  +---------------------------+" -ForegroundColor DarkCyan
+    Write-Host "  |       ZERO  STORE        |" -ForegroundColor Cyan
+    Write-Host "  +---------------------------+" -ForegroundColor DarkCyan
+    Write-Host "  |  [1]  Apply Settings     |" -ForegroundColor White
+    Write-Host "  |  [2]  Reset All Settings |" -ForegroundColor White
+    Write-Host "  |  [3]  Exit               |" -ForegroundColor White
+    Write-Host "  +---------------------------+" -ForegroundColor DarkCyan
     Write-Host ""
     Write-Host "  Select > " -ForegroundColor Yellow -NoNewline
     $choice = Read-Host
 
     switch ($choice.Trim()) {
-
         "1" {
             Show-Banner
-            Write-Host "  Applying settings..." -ForegroundColor DarkGray
+            Write-Host "  Running..." -ForegroundColor DarkGray
             Apply-AllRegistry
             Apply-AllCMD
+            Apply-NetworkAdapter
             Write-Done
             Start-Sleep 2
             Show-Banner
         }
-
         "2" {
             Show-Banner
-            Write-Host "  Resetting to defaults..." -ForegroundColor DarkGray
+            Write-Host "  Resetting..." -ForegroundColor DarkGray
             Reset-AllRegistry
             Write-Done
             Start-Sleep 2
             Show-Banner
         }
-
         "3" {
-            Write-Host "`n  Goodbye.`n" -ForegroundColor DarkGray
+            Write-Host ""
+            Write-Host "  Goodbye." -ForegroundColor DarkGray
+            Write-Host ""
             break menuLoop
         }
-
         default {
-            Write-Host "  Invalid option. Try again.`n" -ForegroundColor Red
+            Write-Host "  Invalid option." -ForegroundColor Red
+            Write-Host ""
         }
     }
 }
