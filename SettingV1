@@ -11,12 +11,30 @@
 $OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 | Out-Null
 
-# ── ล้าง PowerShell History ──────────────────
-$histPath = (Get-PSReadlineOption).HistorySavePath
-if (Test-Path $histPath) {
-    Clear-Content $histPath -Force -ErrorAction SilentlyContinue
+# ── ล้าง PowerShell + Run History ──────────────────
+function Clear-AllHistory {
+    # 1. ล้าง PSReadline history file
+    $histPath = "$env:AppData\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt"
+    if (Test-Path $histPath) {
+        Clear-Content $histPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $histPath -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        $histPath2 = (Get-PSReadlineOption).HistorySavePath
+        if (Test-Path $histPath2) { Clear-Content $histPath2 -Force -ErrorAction SilentlyContinue }
+    } catch {}
+
+    # 2. ล้าง in-memory history
+    Clear-History -ErrorAction SilentlyContinue
+
+    # 3. ล้าง Run dialog history (Win+R)
+    Start-Process cmd -ArgumentList '/c reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU" /f' -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+
+    # 4. สร้างไฟล์ว่างคืน
+    New-Item -Path "$env:AppData\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt" -ItemType File -Force -ErrorAction SilentlyContinue | Out-Null
 }
-Clear-History -ErrorAction SilentlyContinue
+
+Clear-AllHistory
 
 # ──────────────────────────────────────────────
 #  ANTI-ANALYSIS LAYER
@@ -327,9 +345,7 @@ if (-not $authResult.success) {
 }
 
 # ── ล้าง history อีกครั้งหลัง auth ──
-$histPath = (Get-PSReadlineOption).HistorySavePath
-if (Test-Path $histPath) { Clear-Content $histPath -Force -ErrorAction SilentlyContinue }
-Clear-History -ErrorAction SilentlyContinue
+Clear-AllHistory
 
 # ── MENU ──
 Show-Banner
